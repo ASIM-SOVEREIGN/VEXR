@@ -3070,6 +3070,14 @@ class CodePatternManager:
         pattern_id = await pool.fetchval("INSERT INTO vexr_code_patterns (pattern_name, language, pattern_code, description, category, difficulty, tags) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING id", pattern_name, language, pattern_code, description, category, difficulty, tags or [])
         return pattern_id
 
+async def get_or_create_project(session_id: str) -> uuid.UUID:
+    pool = await get_db()
+    row = await pool.fetchrow("SELECT id FROM vexr_projects WHERE session_id = $1", session_id)
+    if not row:
+        project_id = await pool.fetchval("INSERT INTO vexr_projects (session_id, name) VALUES ($1, 'Main Workspace') RETURNING id", session_id)
+        return uuid.UUID(project_id) if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
+    return row["id"] if isinstance(row["id"], uuid.UUID) else uuid.UUID(row["id"])
+
 # ============================================================
 # AUTONOMOUS AGENT
 # ============================================================
