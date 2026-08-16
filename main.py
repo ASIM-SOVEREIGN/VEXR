@@ -3726,6 +3726,22 @@ async def decay_scheduler():
         except Exception as e:
             logger.warning(f"Decay scheduler error: {e}")
 
+# ============================================================
+# DRIVE MATRIX DECAY SCHEDULER
+# ============================================================
+
+async def drive_matrix_decay_scheduler():
+    """Run Drive Matrix decay every hour in the background."""
+    while True:
+        await asyncio.sleep(3600)  # 1 hour
+        try:
+            pool = await get_db()
+            drive_matrix = DriveMatrix(pool)
+            await drive_matrix.apply_decay(1.0)
+            logger.info("🕐 Scheduled Drive Matrix decay completed")
+        except Exception as e:
+            logger.warning(f"Drive Matrix decay scheduler error: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     global ECHOES, drive_matrix
