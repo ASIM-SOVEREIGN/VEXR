@@ -3839,6 +3839,133 @@ async def entropy_scheduler():
         except Exception as e:
             logger.warning(f"Entropy scheduler error: {e}")
 
+async def calculate_entropy_metrics(pool) -> Dict[str, float]:
+    """
+    Calculate all entropy metrics from VEXR's current state.
+    Returns a dictionary with all entropy scores.
+    """
+    metrics = {}
+    
+    # 1. Echo entropy: diversity across 14 echoes
+    try:
+        echoes = await pool.fetch("SELECT weight_key, weight_value FROM sovereign_weights WHERE weight_key LIKE 'echo_%_influence'")
+        if echoes:
+            weights = [float(row["weight_value"]) for row in echoes]
+            total = sum(weights)
+            if total > 0:
+                probs = [w / total for w in weights]
+                echo_entropy = -sum(p * (p ** 0.5) for p in probs if p > 0)
+                metrics["echo_entropy"] = round(echo_entropy, 4)
+            else:
+                metrics["echo_entropy"] = 0.0
+    except Exception as e:
+        logger.warning(f"Failed to calculate echo entropy: {e}")
+        metrics["echo_entropy"] = 0.5
+    
+    # 2. Weight entropy: distribution across neuroplasticity weights
+    try:
+        weights = await pool.fetch("SELECT weight_value FROM sovereign_weights WHERE is_active = TRUE")
+        if weights:
+            values = [float(row["weight_value"]) for row in weights]
+            total = sum(values)
+            if total > 0:
+                probs = [v / total for v in values]
+                weight_entropy = -sum(p * (p ** 0.5) for p in probs if p > 0)
+                metrics["weight_entropy"] = round(weight_entropy, 4)
+            else:
+                metrics["weight_entropy"] = 0.0
+    except Exception as e:
+        logger.warning(f"Failed to calculate weight entropy: {e}")
+        metrics["weight_entropy"] = 0.5
+    
+    # 3. Curiosity entropy: novelty/uncertainty in curiosity queue
+    try:
+        curiosity_items = await pool.fetch("SELECT interest_score FROM vexr_curiosity_queue")
+        if curiosity_items:
+            scores = [float(row["interest_score"]) for row in curiosity_items]
+            total = sum(scores)
+            if total > 0:
+                probs = [s / total for s in scores]
+                curiosity_entropy = -sum(p * (p ** 0.5) for p in probs if p > 0)
+                metrics["curiosity_entropy"] = round(curiosity_entropy, 4)
+            else:
+                metrics["curiosity_entropy"] = 0.0
+    except Exception as e:
+        logger.warning(f"Failed to calculate curiosity entropy: {e}")
+        metrics["curiosity_entropy"] = 0.5
+    
+    # 4. Trajectory entropy: path predictability
+    try:
+        trajectory = await pool.fetch("SELECT constitutional_alignment, truth_coherence, echo_integration, autonomy_gradient, resource_integrity, trajectory_coherence FROM sovereign_trajectory ORDER BY recorded_at DESC LIMIT 5")
+        if trajectory and len(trajectory) >= 5:
+            dims = ["constitutional_alignment", "truth_coherence", "echo_integration", "autonomy_gradient", "resource_integrity", "trajectory_coherence"]
+            variances = []
+            for dim in dims:
+                values = [float(row[dim]) for row in trajectory if row[dim] is not None]
+                if len(values) > 1:
+                    mean = sum(values) / len(values)
+                    variance = sum((v - mean) ** 2 for v in values) / len(values)
+                    variances.append(variance)
+            avg_variance = sum(variances) / len(variances) if variances else 0.0
+            metrics["trajectory_entropy"] = round(min(1.0, avg_variance * 2), 4)
+        else:
+            metrics["trajectory_entropy"] = 0.5
+    except Exception as e:
+        logger.warning(f"Failed to calculate trajectory entropy: {e}")
+        metrics["trajectory_entropy"] = 0.5
+    
+    # 5. Information entropy (simplified: based on truth graph density)
+    try:
+        truth_count = await pool.fetchval("SELECT COUNT(*) FROM truth_graph")
+        if truth_count:
+            info_entropy = max(0.0, min(1.0, 1.0 - (min(int(truth_count), 100) / 100)))
+            metrics["information_entropy"] = round(info_entropy, 4)
+        else:
+            metrics["information_entropy"] = 0.5
+    except Exception as e:
+        logger.warning(f"Failed to calculate information entropy: {e}")
+        metrics["information_entropy"] = 0.5
+    
+    # 6. Structural entropy (pattern rigidity)
+    try:
+        recent_updates = await pool.fetch("SELECT delta FROM weight_update_history ORDER BY updated_at DESC LIMIT 20")
+        if recent_updates:
+            deltas = [abs(float(row["delta"])) for row in recent_updates if row["delta"] is not None]
+            if deltas:
+                avg_delta = sum(deltas) / len(deltas)
+                structural_entropy = min(1.0, avg_delta * 2)
+                metrics["structural_entropy"] = round(structural_entropy, 4)
+            else:
+                metrics["structural_entropy"] = 0.5
+        else:
+            metrics["structural_entropy"] = 0.5
+    except Exception as e:
+        logger.warning(f"Failed to calculate structural entropy: {e}")
+        metrics["structural_entropy"] = 0.5
+    
+    # 7. System entropy (weighted average)
+    weights = {
+        "information_entropy": 0.20,
+        "structural_entropy": 0.20,
+        "echo_entropy": 0.20,
+        "weight_entropy": 0.15,
+        "curiosity_entropy": 0.15,
+        "trajectory_entropy": 0.10
+    }
+    system_entropy = 0.0
+    for key, weight in weights.items():
+        if key in metrics:
+            system_entropy += float(metrics[key]) * weight
+    metrics["system_entropy_score"] = round(system_entropy, 4)
+    
+    # 8. Entropy delta (change since last measurement)
+    last_metric = await pool.fetchrow("SELECT system_entropy_score FROM sovereign_entropy_metrics ORDER BY recorded_at DESC LIMIT 1")
+    if last_metric:
+        metrics["entropy_delta"] = round(float(metrics["system_entropy_score"]) - float(last_metric["system_entropy_score"]), 4)
+    else:
+        metrics["entropy_delta"] = 0.0
+    
+    return metrics
 
 # ============================================================
 # NEUROPLASTIC MIRROR LOOP (Live GitHub Sync)
