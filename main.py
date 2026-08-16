@@ -39,7 +39,7 @@ import requests
 import dns.resolver
 
 # --- NEW: Google Gemini SDK ---
-import google.genai
+import google.genai as genai
 
 def sanitize_utf8(text: str) -> str:
     if not text:
