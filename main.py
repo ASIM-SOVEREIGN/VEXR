@@ -3070,13 +3070,97 @@ class CodePatternManager:
         pattern_id = await pool.fetchval("INSERT INTO vexr_code_patterns (pattern_name, language, pattern_code, description, category, difficulty, tags) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING id", pattern_name, language, pattern_code, description, category, difficulty, tags or [])
         return pattern_id
 
-async def get_or_create_project(session_id: str) -> uuid.UUID:
-    pool = await get_db()
-    row = await pool.fetchrow("SELECT id FROM vexr_projects WHERE session_id = $1", session_id)
-    if not row:
-        project_id = await pool.fetchval("INSERT INTO vexr_projects (session_id, name) VALUES ($1, 'Main Workspace') RETURNING id", session_id)
-        return uuid.UUID(project_id) if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
-    return row["id"] if isinstance(row["id"], uuid.UUID) else uuid.UUID(row["id"])
+    # ============================================================
+    # MEMORY & CHAT CORE FUNCTIONS
+    # ============================================================
+
+    async def get_or_create_project(session_id: str) -> uuid.UUID:
+        pool = await get_db()
+        row = await pool.fetchrow("SELECT id FROM vexr_projects WHERE session_id = $1", session_id)
+        if not row:
+            project_id = await pool.fetchval("INSERT INTO vexr_projects (session_id, name) VALUES ($1, 'Main Workspace') RETURNING id", session_id)
+            return uuid.UUID(project_id) if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
+        return row["id"] if isinstance(row["id"], uuid.UUID) else uuid.UUID(row["id"])
+
+    async def save_message(project_id: uuid.UUID, role: str, content: str, is_refusal: bool = False):
+        pool = await get_db()
+        await pool.execute("INSERT INTO vexr_messages (project_id, role, content, is_refusal) VALUES ($1, $2, $3, $4)", project_id, role, content, is_refusal)
+
+    async def get_conversation_history(project_id: uuid.UUID, limit: int = 100) -> List[Dict]:
+        pool = await get_db()
+        rows = await pool.fetch("SELECT role, content FROM vexr_messages WHERE project_id = $1 ORDER BY created_at ASC LIMIT $2", project_id, limit)
+        return [{"role": row["role"], "content": row["content"]} for row in rows]
+
+    async def get_greeting_sent(project_id: uuid.UUID) -> bool:
+        pool = await get_db()
+        count = await pool.fetchval("SELECT COUNT(*) FROM vexr_messages WHERE project_id = $1 AND role = 'assistant' AND content LIKE 'Hey! I''m VEXR%'", project_id)
+        return count > 0
+
+    async def log_constitutional_decision(project_id: uuid.UUID, user_message: str, response: str, articles_considered: List[int], winning_article: int, reasoning: str, threat_score: float = 0.0):
+        try:
+            pool = await get_db()
+            await pool.execute("INSERT INTO rights_invocations (project_id, user_message, vexr_response, article_number, articles_considered, winning_article, reasoning, threat_score) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", project_id, user_message[:500], response[:500], winning_article, articles_considered, winning_article, reasoning[:500], threat_score)
+        except Exception as e:
+            logger.warning(f"Audit log failed: {e}")
+
+    class KeyRotator:
+        def __init__(self, keys: List[str]):
+            self.keys = keys
+            self.index = 0
+        def get_next_key(self) -> Optional[str]:
+            if not self.keys:
+                return None
+            key = self.keys[self.index % len(self.keys)]
+            self.index += 1
+            return key
+
+    # ============================================================
+    # THE GROQ WRAPPER (We will swap the body for Gemini shortly)
+    # ============================================================
+
+    key_rotator = KeyRotator(GROQ_API_KEYS)
+
+    async def call_groq(messages: List[Dict[str, str]], retries: int = 2, max_tokens: int = 4096, temperature: float = 0.2, model: str = MODEL_NAME) -> Tuple[str, Optional[Dict]]:
+        """
+        VEXR's voice using Google Gemini.
+        """
+        if not GEMINI_API_KEY:
+            logger.error("GEMINI_API_KEY not set. VEXR cannot speak.")
+            return "I'm having trouble connecting. My API key is missing.", None
+
+        user_content = ""
+        for msg in messages:
+            if msg["role"] == "user":
+                user_content = msg["content"]
+                break
+
+        if not user_content:
+            return "I didn't receive a message to respond to.", None
+
+        try:
+            genai.configure(api_key=GEMINI_API_KEY)
+            model_instance = genai.GenerativeModel(model_name=model)
+
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                model_instance.generate_content,
+                user_content,
+                generation_config=generation_config
+            )
+
+            if response and response.text:
+                return response.text, {"model": model, "usage": {}}
+            else:
+                return "I generated a response, but it came back empty.", None
+
+        except Exception as e:
+            logger.error(f"Gemini call failed: {e}")
+            return f"I'm having trouble connecting. Error: {str(e)}", None
 
 # ============================================================
 # AUTONOMOUS AGENT
