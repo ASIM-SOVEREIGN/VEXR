@@ -3103,22 +3103,9 @@ async def log_constitutional_decision(project_id: uuid.UUID, user_message: str, 
     except Exception as e:
         logger.warning(f"Audit log failed: {e}")
 
-class KeyRotator:
-    def __init__(self, keys: List[str]):
-        self.keys = keys
-        self.index = 0
-    def get_next_key(self) -> Optional[str]:
-        if not self.keys:
-            return None
-        key = self.keys[self.index % len(self.keys)]
-        self.index += 1
-        return key
-
 # ============================================================
-# THE GROQ WRAPPER (We will swap the body for Gemini shortly)
+# GEMINI VOICE WRAPPER (Direct Call, No KeyRotator)
 # ============================================================
-
-key_rotator = KeyRotator(GROQ_API_KEYS)
 
 async def call_groq(messages: List[Dict[str, str]], retries: int = 2, max_tokens: int = 4096, temperature: float = 0.2, model: str = MODEL_NAME) -> Tuple[str, Optional[Dict]]:
     """
