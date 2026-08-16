@@ -5,4 +5,5 @@ requests
 asyncpg
 python-dotenv
 dnspython
-google-generativeai
+python-multipart
+google-genai
