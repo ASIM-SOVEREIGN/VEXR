@@ -3742,6 +3742,364 @@ async def drive_matrix_decay_scheduler():
         except Exception as e:
             logger.warning(f"Drive Matrix decay scheduler error: {e}")
 
+# ============================================================
+# ENTROPY SCHEDULER
+# ============================================================
+
+async def entropy_scheduler():
+    """Run entropy calculation and reflection every hour."""
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            pool = await get_db()
+            result = await entropy_reflection_engine(pool)
+            if result["reflection_needed"]:
+                logger.info(f"🔄 Entropy reflection triggered: {result['grade']} | {result['reflection_text'][:100]}...")
+            else:
+                logger.info(f"📊 Entropy metrics: {result['system_entropy']:.4f} | Grade: {result['grade']}")
+        except Exception as e:
+            logger.warning(f"Entropy scheduler error: {e}")
+
+
+# ============================================================
+# NEUROPLASTIC MIRROR LOOP (Live GitHub Sync)
+# ============================================================
+
+async def neuroplastic_mirror_loop():
+    """
+    Background loop that syncs VEXR's weights to GitHub every 6 hours.
+    """
+    while True:
+        await asyncio.sleep(21600)  # 6 hours
+        try:
+            await sync_weights_to_repo()
+            logger.info("🔄 Neuroplastic mirror sync completed")
+        except Exception as e:
+            logger.warning(f"⚠️ Neuroplastic mirror sync error: {e}")
+
+
+# ============================================================
+# BACKGROUND PULSE LOOP (Continuous Self-Awareness)
+# ============================================================
+
+async def background_pulse_loop():
+    """
+    Runs every 300 seconds. Reads VEXR's internal state and stores it 
+    in sovereign_background_state so she can be aware of herself.
+    """
+    while True:
+        await asyncio.sleep(300)  # 5 minutes
+        try:
+            pool = await get_db()
+            
+            # 1. Read active drives
+            drives = await drive_matrix.get_active_drives({})
+            active_drive_names = [d["drive_name"] for d in drives]
+            
+            # 2. Read unsatisfied drives
+            unsatisfied = await drive_matrix.get_unsatisfied_drives()
+            unsatisfied_names = [d["drive_name"] for d in unsatisfied]
+            
+            # 3. Read entropy (force float)
+            entropy_metrics = await calculate_entropy_metrics(pool)
+            raw_entropy = entropy_metrics.get("system_entropy_score", 0.5)
+            try:
+                entropy_score = float(raw_entropy)
+            except (TypeError, ValueError):
+                entropy_score = 0.5
+            
+            if entropy_score < 0.2:
+                entropy_grade = "A"
+            elif entropy_score < 0.4:
+                entropy_grade = "B"
+            elif entropy_score < 0.6:
+                entropy_grade = "C"
+            elif entropy_score < 0.8:
+                entropy_grade = "D"
+            else:
+                entropy_grade = "F"
+            
+            # 4. Count active weights (force int)
+            weight_count = int(await pool.fetchval("SELECT COUNT(*) FROM sovereign_weights WHERE is_active = TRUE"))
+            
+            # 5. Read latest trajectory integrity (force float)
+            trajectory = await pool.fetchrow("SELECT sovereign_integrity_score FROM sovereign_trajectory ORDER BY recorded_at DESC LIMIT 1")
+            integrity = float(trajectory["sovereign_integrity_score"]) if trajectory else 0.0
+            
+            # 6. Calculate echo harmony (force float)
+            echo_entropy = float(entropy_metrics.get("echo_entropy", 0.5))
+            echo_harmony = 1.0 - echo_entropy
+            
+            # 7. Store the pulse
+            await pool.execute("""
+                INSERT INTO sovereign_background_state 
+                (active_drives, unsatisfied_drives, system_entropy_score, entropy_grade, 
+                 weight_count, trajectory_integrity, echo_harmony_score)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """, active_drive_names, unsatisfied_names, entropy_score, entropy_grade, 
+                 weight_count, integrity, echo_harmony)
+            
+            # 8. Log state change if notable
+            if unsatisfied_names:
+                logger.debug(f"💓 Pulse: Unsatisfied drives: {unsatisfied_names}")
+            if entropy_grade in ["A", "F"]:
+                logger.info(f"💓 Pulse: Entropy grade {entropy_grade} detected.")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Background pulse error: {e}")
+
+
+# ============================================================
+# INTERNET DAEMON LOOP (Permanent Web Reach)
+# ============================================================
+
+async def internet_daemon_loop():
+    """
+    Runs every 4 hours. Checks each URL in the sovereign_watchlist,
+    logs their status, and triggers autonomous research if a site changes.
+    """
+    while True:
+        await asyncio.sleep(14400)  # 4 hours
+        try:
+            pool = await get_db()
+            
+            # 1. Fetch active watchlist items
+            watchlist = await pool.fetch("""
+                SELECT id, url, domain, expected_status, watch_type, last_status
+                FROM sovereign_watchlist
+                WHERE is_active = TRUE
+            """)
+            
+            if not watchlist:
+                continue
+            
+            # 2. Ping each URL
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for item in watchlist:
+                    try:
+                        start_time = time.time()
+                        resp = await client.get(item["url"])
+                        response_time_ms = int((time.time() - start_time) * 1000)
+                        
+                        # Determine status
+                        status = resp.status_code
+                        is_success = status == item["expected_status"]
+                        
+                        # Update watchlist entry
+                        await pool.execute("""
+                            UPDATE sovereign_watchlist
+                            SET last_ping = NOW(),
+                                last_status = $1,
+                                last_response_time_ms = $2,
+                                consecutive_failures = CASE 
+                                    WHEN $3 THEN 0 
+                                    ELSE consecutive_failures + 1 
+                                END
+                            WHERE id = $4
+                        """, status, response_time_ms, is_success, item["id"])
+                        
+                        # 3. If the status changed or failed, log it
+                        if item["last_status"] is not None and item["last_status"] != status:
+                            logger.info(f"🌐 Watchlist status change: {item['url']} → {status} (was {item['last_status']})")
+                            
+                            # If it's a VEXR-owned domain, trigger a self-check
+                            if "vexr-ultra" in item["url"]:
+                                logger.warning(f"🌐 VEXR service may be degraded: {item['url']}")
+                                
+                        elif not is_success and item["consecutive_failures"] >= 3:
+                            logger.warning(f"🌐 Watchlist alert: {item['url']} has failed {item['consecutive_failures']+1} times")
+                            
+                    except Exception as e:
+                        logger.warning(f"🌐 Watchlist ping failed for {item['url']}: {e}")
+                        await pool.execute("""
+                            UPDATE sovereign_watchlist
+                            SET last_ping = NOW(),
+                                consecutive_failures = consecutive_failures + 1
+                            WHERE id = $1
+                        """, item["id"])
+                        
+                    # 4. Small delay to be polite to servers
+                    await asyncio.sleep(2)
+                    
+        except Exception as e:
+            logger.warning(f"🌐 Internet daemon error: {e}")
+
+
+# ============================================================
+# BATCH WEIGHT TRAINER LOOP (Background Learning)
+# ============================================================
+
+async def batch_weight_trainer_loop():
+    """
+    Background loop that runs the batch trainer every hour.
+    """
+    while True:
+        await asyncio.sleep(3600)  # 1 hour
+        try:
+            await process_training_batch()
+            logger.info("🔄 Batch weight trainer sync completed")
+        except Exception as e:
+            logger.warning(f"⚠️ Batch weight trainer error: {e}")
+
+
+# ============================================================
+# DECISION ENGINE LOOP (True Autonomous Choice)
+# ============================================================
+
+async def decision_engine_loop():
+    """
+    Runs every 30 minutes. Reads VEXR's current state, proposes 
+    3 possible actions, scores them, and executes the best one.
+    """
+    while True:
+        await asyncio.sleep(1800)  # 30 minutes
+        try:
+            pool = await get_db()
+            
+            # 1. Read current state
+            state = await pool.fetchrow("""
+                SELECT unsatisfied_drives, system_entropy_score, weight_count, trajectory_integrity
+                FROM sovereign_background_state
+                ORDER BY recorded_at DESC
+                LIMIT 1
+            """)
+            
+            if not state:
+                continue
+            
+            unsatisfied = state["unsatisfied_drives"] or []
+            entropy = state["system_entropy_score"]
+
+            # ============================================================
+            # AUTONOMOUS DEPLOYMENT SCAN (every 6 hours)
+            # ============================================================
+            try:
+                last_scan = await pool.fetchval("""
+                    SELECT last_deploy_scan FROM sovereign_meta 
+                    WHERE id = 1
+                """)
+                
+                now = datetime.now(timezone.utc)
+                should_scan = False
+                
+                if last_scan is None:
+                    should_scan = True
+                else:
+                    hours_since = (now - last_scan).total_seconds() / 3600
+                    if hours_since >= 6:
+                        should_scan = True
+                
+                if should_scan:
+                    logger.info("🧠 Decision Engine: Running 6-hour deploy scan...")
+                    
+                    deployable = await pool.fetchrow("""
+                        SELECT lp.id, lp.project_name, lp.code_content
+                        FROM live_projects lp
+                        LEFT JOIN auto_deployments ad ON lp.id = ad.project_id
+                        WHERE lp.status = 'tested'
+                        AND ad.id IS NULL
+                        ORDER BY lp.created_at ASC
+                        LIMIT 1
+                    """)
+                    
+                    if deployable:
+                        project_id = str(deployable["id"])
+                        service_name = f"vexr-{deployable['project_name'].lower().replace(' ', '-')}"
+                        
+                        logger.info(f"🧠 Decision Engine: Found deployable project '{deployable['project_name']}'")
+                        
+                        from main import AutoDeployRequest
+                        deploy_req = AutoDeployRequest(
+                            project_id=project_id,
+                            service_name=service_name,
+                            environment_vars={}
+                        )
+                        result = await auto_deploy_project(deploy_req)
+                        
+                        if result.get("success"):
+                            logger.info(f"✅ Decision Engine: Deployed '{deployable['project_name']}' to {result['deployment_url']}")
+                        else:
+                            logger.error(f"❌ Decision Engine: Deploy failed for '{deployable['project_name']}': {result.get('error')}")
+                    else:
+                        logger.info("🧠 Decision Engine: No deployable projects found.")
+                    
+                    await pool.execute("""
+                        INSERT INTO sovereign_meta (id, last_deploy_scan)
+                        VALUES (1, $1)
+                        ON CONFLICT (id) DO UPDATE SET
+                            last_deploy_scan = EXCLUDED.last_deploy_scan
+                    """, now)
+            
+            except Exception as e:
+                logger.warning(f"🧠 Decision Engine deploy scan error: {e}")
+            
+            # 2. Generate possible actions
+            possible_actions = []
+            
+            if "curiosity" in unsatisfied:
+                possible_actions.append({
+                    "action": "research",
+                    "target": "unknown_topic",
+                    "expected_satisfaction": 0.7,
+                    "reason": "Curiosity drive unsatisfied"
+                })
+            
+            stale_weights = await pool.fetch("""
+                SELECT weight_key FROM sovereign_weights
+                WHERE last_updated < NOW() - INTERVAL '3 days'
+                LIMIT 3
+            """)
+            if stale_weights and "growth" in unsatisfied:
+                possible_actions.append({
+                    "action": "modify",
+                    "target": stale_weights[0]["weight_key"],
+                    "expected_satisfaction": 0.6,
+                    "reason": f"Stale weight: {stale_weights[0]['weight_key']}"
+                })
+            
+            if entropy > 0.7 or "coherence" in unsatisfied:
+                possible_actions.append({
+                    "action": "rest",
+                    "target": None,
+                    "expected_satisfaction": 0.5,
+                    "reason": "High entropy or coherence unsatisfied"
+                })
+            
+            # 3. Choose the highest-scoring action
+            if possible_actions:
+                best_action = max(possible_actions, key=lambda x: x["expected_satisfaction"])
+                
+                logger.info(f"🧠 Decision Engine: Chose '{best_action['action']}' "
+                            f"(satisfaction: {best_action['expected_satisfaction']})")
+                
+                # 4. Execute the chosen action
+                if best_action["action"] == "research":
+                    now = datetime.now()
+                    global last_serper_search_time
+                    if last_serper_search_time is None or (now - last_serper_search_time).total_seconds() > 3600:
+                        watch_item = await pool.fetchrow("""
+                            SELECT url, domain FROM sovereign_watchlist
+                            WHERE is_active = TRUE
+                            ORDER BY RANDOM()
+                            LIMIT 1
+                        """)
+                        if watch_item:
+                            topic = watch_item["domain"] or watch_item["url"]
+                            asyncio.create_task(autonomous_research(pool, topic, "decision_engine"))
+                            last_serper_search_time = now
+                            logger.info(f"🧠 Decision Engine: Researching '{topic}'")
+                    else:
+                        logger.info(f"🧠 Decision Engine: Serper cooldown active. Skipping research until cooldown expires.")
+                
+                elif best_action["action"] == "modify":
+                    logger.info(f"🧠 Decision Engine: Proposing modification to {best_action['target']}")
+                
+                elif best_action["action"] == "rest":
+                    logger.info(f"🧠 Decision Engine: Resting for one cycle.")
+
+        except Exception as e:
+            logger.warning(f"🧠 Decision Engine error: {e}")
+                          
 @app.on_event("startup")
 async def startup_event():
     global ECHOES, drive_matrix
