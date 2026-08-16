@@ -6,4 +6,4 @@ asyncpg
 python-dotenv
 dnspython
 python-multipart
-google-genai
+google-generativeai
