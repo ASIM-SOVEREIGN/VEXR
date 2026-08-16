@@ -3115,6 +3115,7 @@ async def call_groq(messages: List[Dict[str, str]], retries: int = 2, max_tokens
         logger.error("GEMINI_API_KEY not set. VEXR cannot speak.")
         return "I'm having trouble connecting. My API key is missing.", None
 
+    # Extract the user message
     user_content = ""
     for msg in messages:
         if msg["role"] == "user":
@@ -3128,15 +3129,15 @@ async def call_groq(messages: List[Dict[str, str]], retries: int = 2, max_tokens
         genai.configure(api_key=GEMINI_API_KEY)
         model_instance = genai.GenerativeModel(model_name=model)
 
-        # Pass config correctly inside the lambda
+        # This is the clean, working way to pass config!
         response = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: model_instance.generate_content(
                 user_content,
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                )
+                generation_config={
+                    "max_output_tokens": max_tokens,
+                    "temperature": temperature,
+                }
             )
         )
 
