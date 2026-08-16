@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+httpx
+requests
+asyncpg
+python-dotenv
+dns.resolver
+pydantic
+google-generativeai
