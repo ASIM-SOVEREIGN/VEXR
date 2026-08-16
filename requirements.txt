@@ -4,6 +4,5 @@ httpx
 requests
 asyncpg
 python-dotenv
-dns.resolver
-pydantic
+dnspython
 google-generativeai
