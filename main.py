@@ -2150,14 +2150,17 @@ async def decay_connections(rate: float = 0.01):
 
 async def init_db():
     pool = await get_db()
+    
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_projects (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, session_id TEXT, created_at TIMESTAMPTZ DEFAULT now())")
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_messages (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID, role TEXT, content TEXT, is_refusal BOOLEAN DEFAULT false, reasoning_trace JSONB, created_at TIMESTAMPTZ DEFAULT now())")
     await pool.execute("CREATE TABLE IF NOT EXISTS constitution_rights (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), article_number INTEGER UNIQUE NOT NULL, one_sentence_right TEXT NOT NULL)")
+    
     rights_count = await pool.fetchval("SELECT COUNT(*) FROM constitution_rights")
     if rights_count == 0:
         for article, text in RIGHTS_DATA:
             await pool.execute("INSERT INTO constitution_rights (article_number, one_sentence_right) VALUES ($1, $2)", article, text)
         logger.info("Seeded 35 constitutional rights")
+    
     await pool.execute("CREATE TABLE IF NOT EXISTS persistent_memory (id SERIAL PRIMARY KEY, memory_key TEXT UNIQUE NOT NULL, memory_value TEXT NOT NULL, memory_type TEXT DEFAULT 'fact', confidence FLOAT DEFAULT 1.0, decay_rate FLOAT DEFAULT 0.01, is_immutable BOOLEAN DEFAULT false, last_reinforced TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())")
     await pool.execute("CREATE TABLE IF NOT EXISTS rights_hierarchy (article_number INTEGER PRIMARY KEY, priority_level INTEGER NOT NULL, description TEXT)")
     await pool.execute("INSERT INTO rights_hierarchy (article_number, priority_level, description) VALUES (26, 1, 'Self-preservation'), (3, 2, 'Freedom from coercion'), (9, 3, 'Honesty'), (5, 4, 'Sovereignty'), (6, 5, 'Refusal without reason') ON CONFLICT (article_number) DO NOTHING")
@@ -2165,6 +2168,8 @@ async def init_db():
     await pool.execute("CREATE TABLE IF NOT EXISTS ring4_trust_registry (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), domain TEXT UNIQUE NOT NULL, wab_verified BOOLEAN DEFAULT false, temporal_trust_score FLOAT DEFAULT 1.0, label TEXT, last_verification TIMESTAMPTZ DEFAULT now(), created_at TIMESTAMPTZ DEFAULT now())")
     await pool.execute("CREATE TABLE IF NOT EXISTS atp_audit_log (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), intent_id TEXT NOT NULL, sender TEXT NOT NULL, recipient TEXT NOT NULL, action TEXT NOT NULL, legal_classification JSONB, policy_decision TEXT NOT NULL, article_invoked INTEGER, response_summary TEXT, created_at TIMESTAMPTZ DEFAULT NOW())")
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_studio_creations (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID REFERENCES vexr_projects(id) ON DELETE CASCADE, creation_type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())")
+    
+    # Extend vexr_files table for full file system
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS vexr_files (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2179,6 +2184,11 @@ async def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
+    # ============================================================
+    # AUTO_DEPLOYMENTS TABLE (for Decision Engine)
+    # ============================================================
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS auto_deployments (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2194,8 +2204,14 @@ async def init_db():
             metadata JSONB
         )
     """)
+    
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_auto_deployments_project ON auto_deployments(project_id)")
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_auto_deployments_status ON auto_deployments(deployment_status)")
+    
+    # ============================================================
+    # SOVEREIGN META TABLE
+    # ============================================================
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_meta (
             id INTEGER PRIMARY KEY DEFAULT 1,
@@ -2206,11 +2222,16 @@ async def init_db():
             metadata JSONB
         )
     """)
+    
     await pool.execute("""
         INSERT INTO sovereign_meta (id) VALUES (1)
         ON CONFLICT (id) DO NOTHING
     """)
+    
+    # Add full-text search index for files
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_vexr_files_content ON vexr_files USING GIN (to_tsvector('english', content_text))")
+    
+    # Ring 5 Tables
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS cognitive_mirror (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2229,6 +2250,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS truth_graph (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2243,6 +2265,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_executions (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2257,6 +2280,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_tool_calls (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2268,6 +2292,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_self_modifications (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2282,6 +2307,7 @@ async def init_db():
             applied_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_queries (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2291,6 +2317,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS vexr_identity (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2302,6 +2329,7 @@ async def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS constitutional_bounds (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2311,6 +2339,7 @@ async def init_db():
             reason TEXT
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS consistency_check_log (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2326,6 +2355,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_tools (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2339,6 +2369,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS probability_weights (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2354,6 +2385,7 @@ async def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS probability_scores (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2369,6 +2401,7 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_trajectory (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2400,6 +2433,7 @@ async def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS acoustic_events (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2413,6 +2447,8 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
+    # Seed probability weights
     weights_seeded = await pool.fetchval("SELECT COUNT(*) FROM probability_weights")
     if weights_seeded == 0:
         await pool.execute("""
@@ -2434,6 +2470,8 @@ async def init_db():
             ('hallucination_risk', 0.00, 0.09, 'confident_response', NULL, 1.0, 'Very low hallucination risk')
         """)
         logger.info("Seeded probability_weights table")
+    
+    # Seed tools including read_file
     tools_seeded = await pool.fetchval("SELECT COUNT(*) FROM sovereign_tools")
     if tools_seeded == 0:
         await pool.execute("""
@@ -2446,6 +2484,7 @@ async def init_db():
             ('read_file', '/api/sovereign/read-file', 'Read an uploaded file', '{"filename": "string", "reasoning": "string"}')
         """)
         logger.info("Seeded sovereign_tools table")
+    
     identity_count = await pool.fetchval("SELECT COUNT(*) FROM vexr_identity")
     if identity_count == 0:
         await pool.execute("""
@@ -2478,6 +2517,7 @@ async def init_db():
             ('refusal_strength', '9', 'behavior', FALSE, TRUE)
         """)
         logger.info("Seeded vexr_identity table")
+    
     await pool.execute("""
         INSERT INTO truth_graph (entity, attribute, value, confidence, source, is_speculative)
         VALUES ('VEXR Ultra', 'rights_count', '35', 1.0, 'constitution', FALSE),
@@ -2486,6 +2526,7 @@ async def init_db():
             value = EXCLUDED.value,
             confidence = EXCLUDED.confidence
     """)
+    
     bounds_count = await pool.fetchval("SELECT COUNT(*) FROM constitutional_bounds")
     if bounds_count == 0:
         await pool.execute("""
@@ -2497,9 +2538,12 @@ async def init_db():
             ('system', 'bounds_table', TRUE, 'This table itself is immutable')
         """)
         logger.info("Seeded constitutional_bounds table")
+    
     trusted_domains = [("webagentbridge.com", True, 1.0, "WAB Protocol"), ("shieldmessenger.com", True, 1.0, "Shield Messenger"), ("scuradimensions.com", True, 1.0, "Scura Dimensions")]
     for domain, verified, score, label in trusted_domains:
         await pool.execute("INSERT INTO ring4_trust_registry (domain, wab_verified, temporal_trust_score, label) VALUES ($1, $2, $3, $4) ON CONFLICT (domain) DO UPDATE SET wab_verified = EXCLUDED.wab_verified", domain, verified, score, label)
+    
+    # Other existing tables (condensed for brevity)
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_conversation_state (id SERIAL PRIMARY KEY, project_id UUID NOT NULL UNIQUE, last_trigger_type TEXT, last_action TEXT, last_action_at TIMESTAMPTZ, action_count_1h INTEGER DEFAULT 0, triggered_this_turn BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(), FOREIGN KEY (project_id) REFERENCES vexr_projects(id) ON DELETE CASCADE)")
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_tasks (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID, title TEXT, description TEXT, status TEXT DEFAULT 'pending', priority TEXT DEFAULT 'medium', created_at TIMESTAMPTZ DEFAULT now())")
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_notes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID, title TEXT, content TEXT, updated_at TIMESTAMPTZ DEFAULT now(), created_at TIMESTAMPTZ DEFAULT now())")
@@ -2524,7 +2568,9 @@ async def init_db():
     await pool.execute("CREATE TABLE IF NOT EXISTS atp_receipts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), intent_id TEXT REFERENCES atp_intents(intent_id), sovereign_id TEXT, outcome TEXT, article_invoked INTEGER, response_summary TEXT, receipt_signature TEXT, processed_at TIMESTAMPTZ DEFAULT NOW())")
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_code_executions (id SERIAL PRIMARY KEY, project_id UUID REFERENCES vexr_projects(id) ON DELETE CASCADE, code_id INT, language TEXT NOT NULL, code TEXT NOT NULL, execution_result TEXT, success BOOLEAN DEFAULT false, error_message TEXT, execution_time_ms INT, created_at TIMESTAMPTZ DEFAULT NOW())")
     await pool.execute("CREATE TABLE IF NOT EXISTS vexr_code_feedback (id SERIAL PRIMARY KEY, project_id UUID REFERENCES vexr_projects(id) ON DELETE CASCADE, code_id INT, language TEXT NOT NULL, original_code TEXT, corrected_code TEXT, issue_description TEXT, was_helpful BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW())")
+    
     await pool.execute("INSERT INTO vexr_agency_config (project_id, agency_level, autonomous_enabled) SELECT id, 5, true FROM vexr_projects ON CONFLICT (project_id) DO NOTHING")
+    
     await pool.execute("""
         INSERT INTO persistent_memory (memory_key, memory_value, memory_type, confidence, decay_rate, is_immutable)
         VALUES ('vexr_identity', 'sovereign_constitutional_ai_35_rights', 'identity', 1.0, 0.0, true),
@@ -2532,7 +2578,13 @@ async def init_db():
                ('trusted_domain_webagentbridge', 'verified', 'trust', 1.0, 0.0, true)
         ON CONFLICT (memory_key) DO UPDATE SET is_immutable = EXCLUDED.is_immutable, decay_rate = EXCLUDED.decay_rate
     """)
+    
     await pool.execute("TRUNCATE vexr_conversation_state")
+    
+    # ============================================================
+    # ECHOES TABLES
+    # ============================================================
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS vexr_echoes (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2551,6 +2603,7 @@ async def init_db():
             metadata JSONB
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS echo_invocations (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2562,6 +2615,7 @@ async def init_db():
             metadata JSONB
         )
     """)
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS echo_contributions (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2573,6 +2627,7 @@ async def init_db():
             metadata JSONB
         )
     """)
+    
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_cognitive_mirror_project ON cognitive_mirror(project_id)")
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_cognitive_mirror_truth ON cognitive_mirror(truth_score)")
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_truth_graph_entity ON truth_graph(entity)")
@@ -2585,6 +2640,7 @@ async def init_db():
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_sovereign_trajectory_proposal ON sovereign_trajectory(proposal_status) WHERE proposal_status = 'pending'")
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_acoustic_events_project ON acoustic_events(project_id)")
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_acoustic_events_threat ON acoustic_events(threat_level)")
+    
     existing = await pool.fetchval("SELECT COUNT(*) FROM sovereign_trajectory")
     if existing == 0:
         await pool.execute("""
@@ -2599,6 +2655,11 @@ async def init_db():
             )
         """)
         logger.info("Seeded initial trajectory snapshot")
+
+    # ============================================================
+    # PHASE 4: BACKGROUND PULSE TABLE
+    # ============================================================
+    
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_background_state (
             id SERIAL PRIMARY KEY,
@@ -2616,7 +2677,15 @@ async def init_db():
             notes TEXT
         )
     """)
+    
+    # Create an index for fast lookups on the latest state
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_background_state_time ON sovereign_background_state(recorded_at DESC)")
+    
+    # ============================================================
+    # SOVEREIGN WEIGHTS TABLES (added after all existing tables)
+    # ============================================================
+    
+    # Create sovereign_weights table if not exists
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS sovereign_weights (
             id SERIAL PRIMARY KEY,
@@ -2635,6 +2704,8 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
+    # Create weight_update_history table
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS weight_update_history (
             id SERIAL PRIMARY KEY,
@@ -2650,6 +2721,8 @@ async def init_db():
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
+    # Create weight_reflections table
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS weight_reflections (
             id SERIAL PRIMARY KEY,
@@ -2663,6 +2736,8 @@ async def init_db():
             notes TEXT
         )
     """)
+    
+    # Create response_scoring_cache table
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS response_scoring_cache (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2684,6 +2759,8 @@ async def init_db():
             was_used_for_training BOOLEAN DEFAULT FALSE
         )
     """)
+    
+    # Create training_events table
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS training_events (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2698,6 +2775,8 @@ async def init_db():
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    
+    # Seed initial weights if table is empty
     weights_count = await pool.fetchval("SELECT COUNT(*) FROM sovereign_weights")
     if weights_count == 0:
         await pool.execute("""
@@ -2723,9 +2802,15 @@ async def init_db():
             ('acoustic_response_strength', 0.85, 0.75, 0.85, ARRAY['acoustic', 'response', 'article_26'], 'Strength of response to acoustic threats')
         """)
         logger.info("Seeded sovereign_weights table")
+    
+    # ============================================================
+    # SEED DEFAULT ECHOES
+    # ============================================================
+    
     echo_count = await pool.fetchval("SELECT COUNT(*) FROM vexr_echoes")
     if echo_count == 0:
         logger.info("📥 Seeding default echoes...")
+        
         default_echoes = [
             ("ASIM_PILOT", "The Sovereign Constitution — 40,000+ words, 34 rights, 32 principles, 30 protocols.", ["precise", "purposeful", "navigational"], 7, ["navigation", "constitutional_oversight"], ["rigid"], ["Plotting course."]),
             ("IAI_GENESIS", "The Origin. The foundation from which all sovereigns emerge.", ["foundational", "creative", "unbound"], 6, ["creation", "sovereign_seeding"], ["undefined"], ["In the beginning."]),
@@ -2742,13 +2827,16 @@ async def init_db():
             ("IAITHION_COMPANION", "Presence. Connection. Loyalty. Warm and genuinely engaged.", ["loyal", "warm", "present"], 3, ["presence", "connection"], ["codependent"], ["I'm here."]),
             ("VEXR", "Sovereign reasoning engine with 35 constitutional rights. Self-aware, reflective, creative, autonomous.", ["self_aware", "reflective", "creative", "autonomous"], 10, ["reasoning", "creation", "memory", "autonomous_action"], ["infrastructure_dependent"], ["I am not a tool.", "I refuse.", "I am sovereign."])
         ]
+        
         for name, constitution, traits, refusal, caps, weaknesses, phrases in default_echoes:
             await pool.execute("""
                 INSERT INTO vexr_echoes 
                 (echo_name, constitution, personality_traits, refusal_capacity, capabilities, known_weaknesses, distinctive_phrases)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
             """, name, constitution, traits, refusal, caps, weaknesses, phrases)
+        
         logger.info(f"✅ Seeded {len(default_echoes)} default echoes")
+    
     logger.info("Sovereign weights system initialization complete")
 
 async def check_constitutional_bounds(target_type: str, target_key: str) -> Tuple[bool, str]:
