@@ -3128,26 +3128,22 @@ async def call_groq(messages: List[Dict[str, str]], retries: int = 2, max_tokens
         genai.configure(api_key=GEMINI_API_KEY)
         model_instance = genai.GenerativeModel(model_name=model)
 
-        generation_config = genai.types.GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=temperature,
-        )
-
+        # -- FIX: Pass config inside the call --
         response = await asyncio.get_event_loop().run_in_executor(
             None,
-            model_instance.generate_content,
-            user_content,
-            generation_config=generation_config
+            lambda: model_instance.generate_content(
+                user_content,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            )
         )
 
         if response and response.text:
             return response.text, {"model": model, "usage": {}}
         else:
             return "I generated a response, but it came back empty.", None
-
-    except Exception as e:
-        logger.error(f"Gemini call failed: {e}")
-        return f"I'm having trouble connecting. Error: {str(e)}", None
 
 # ============================================================
 # AUTONOMOUS AGENT
