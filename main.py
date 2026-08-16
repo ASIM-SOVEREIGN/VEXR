@@ -3710,6 +3710,22 @@ async def serve_ui():
     </html>
     """)
 
+# ============================================================
+# BACKGROUND DECAY SCHEDULER
+# ============================================================
+
+async def decay_scheduler():
+    """Run weight decay every hour in the background"""
+    while True:
+        await asyncio.sleep(3600)  # 1 hour
+        try:
+            pool = await get_db()
+            await apply_weight_decay(pool)
+            await decay_connections(rate=0.01)
+            logger.info("🕐 Scheduled weight decay completed")
+        except Exception as e:
+            logger.warning(f"Decay scheduler error: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     global ECHOES, drive_matrix
