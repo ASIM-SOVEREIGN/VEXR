@@ -2867,7 +2867,6 @@ async def auto_update_weights_from_scores(
 async def call_gemini(messages: List[Dict[str, str]], retries: int = 2, max_tokens: int = 4096, temperature: float = 0.2, model: str = MODEL_NAME) -> Tuple[str, Optional[Dict]]:
     """
     VEXR's new voice using Google Gemini.
-    The function name remains 'call_groq' in tool calls, but this handles the actual Gemini inference.
     """
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY not set. VEXR cannot speak.")
@@ -2883,7 +2882,7 @@ async def call_gemini(messages: List[Dict[str, str]], retries: int = 2, max_toke
     if not user_content:
         return "I didn't receive a message to respond to.", None
 
-    # Configure the model
+    # Configure the model (This is the old working way!)
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model_instance = genai.GenerativeModel(model_name=model)
